@@ -23,6 +23,7 @@ export default function App() {
   const [isPortrait, setIsPortrait] = useState(
     () => mobile && window.matchMedia('(orientation: portrait)').matches
   );
+  const [dismissedPortrait, setDismissedPortrait] = useState(false);
 
   // 监听屏幕方向变化
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function App() {
   function startGame(level: number, difficulty: Difficulty) {
     audio.init(); audio.resume();
     if (mobile) requestLandscapeFullscreen();
+    setDismissedPortrait(false);  // 重置，新局再提示一次
     setSave(s => { const n = { ...s, difficulty }; saveData(n); return n; });
     setSelectedLevel(level);
     setEndInfo(null);
@@ -92,10 +94,11 @@ export default function App() {
   return (
     <div className="app">
       {/* 移动端竖屏提示 */}
-      {mobile && isPortrait && inGame && (
+      {mobile && isPortrait && inGame && !dismissedPortrait && (
         <div className="portrait-overlay">
           <div className="portrait-icon">📱</div>
-          <div className="portrait-text">请将手机横过来<br /><span>以获得最佳游戏体验</span></div>
+          <div className="portrait-text">建议横屏游玩<br /><span>体验更佳</span></div>
+          <button className="portrait-dismiss" onClick={() => setDismissedPortrait(true)}>我知道了，继续</button>
         </div>
       )}
 
@@ -199,6 +202,21 @@ export default function App() {
                   🔊 噪音 {mState.noiseRadius.toFixed(1)}m
                 </div>
                 {mState.flashlightOn && <div className="noise-pill light">🔦 手电</div>}
+              </div>
+
+              {/* 体力条 */}
+              <div className="stamina-bar-wrap" title="体力（跑步消耗，蹲行恢复最快）">
+                <span className="stamina-label">⚡</span>
+                <div className="stamina-track">
+                  <div className="stamina-fill"
+                    style={{
+                      width: `${mState.stamina}%`,
+                      background: mState.stamina < 25 ? '#ef4444'
+                                : mState.stamina < 55 ? '#f97316'
+                                : '#4ade80',
+                    }}
+                  />
+                </div>
               </div>
 
               {/* 拾取提示 */}

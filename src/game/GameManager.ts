@@ -17,6 +17,8 @@ import {
   CLOCK_CYCLE, CLOCK_CHIME_DURATION,
   HIDE_INTERACT_DIST, HIDE_SUSPICION_DECAY,
   GHOST_RUN_BONUS, GHOST_RUN_MAX_SUSPICION,
+  STAMINA_MAX, STAMINA_RUN_DRAIN, STAMINA_WALK_REGEN, STAMINA_CROUCH_REGEN, STAMINA_REUSE_MIN,
+  ITEM_PICKUP_NOISE, MOM_SUSPICION_DECAY, MOM_SUSPICION_FLOOR,
 } from './constants';
 import { clamp } from './utils';
 
@@ -83,6 +85,7 @@ export interface ManagerState {
   nearbyCatPet: boolean;          // 是否可撸猫（蹲下 + 距离够）
   catX: number; catZ: number;     // 小地图猫位置
   creakNotice: number;            // 0..1 刚踩到吱呀板的瞬时提示
+  stamina: number;                // 0..100 体力值
 }
 
 export class GameManager {
@@ -127,6 +130,10 @@ export class GameManager {
   private flashEverUsed = false;
   private creakyEverTriggered = false;
   private petCat = false;
+
+  // 体力系统
+  private stamina = STAMINA_MAX;
+  private canRun = true;
 
   // 内部
   private rafId = 0;
@@ -301,12 +308,23 @@ export class GameManager {
       this.grounded = true;
     }
 
-    // 移动速度（空中减速）
+    // 移动速度（空中减速）+ 体力系统
+    const isMovingInput = Math.abs(inp.moveX) + Math.abs(inp.moveY) > 0.05;
+    // 体力：跑步消耗，走路/蹲行回复
+    if (inp.run && this.canRun && this.stamina > 0 && this.stance !== 'CROUCH' && isMovingInput && this.grounded) {
+      this.stamina = Math.max(0, this.stamina - STAMINA_RUN_DRAIN * dt);
+      if (this.stamina <= 0) this.canRun = false;
+    } else {
+      const regen = this.stance === 'CROUCH' ? STAMINA_CROUCH_REGEN : STAMINA_WALK_REGEN;
+      this.stamina = Math.min(STAMINA_MAX, this.stamina + regen * dt);
+      if (!this.canRun && this.stamina >= STAMINA_REUSE_MIN) this.canRun = true;
+    }
+    const canActuallyRun = inp.run && this.canRun && this.stamina > 0;
     let speed = PLAYER_WALK_SPEED;
     if (this.stance === 'CROUCH') speed = PLAYER_CROUCH_SPEED;
-    else if (inp.run) speed = PLAYER_RUN_SPEED;
+    else if (canActuallyRun) speed = PLAYER_RUN_SPEED;
     if (!this.grounded) speed *= 0.7;
-    this.currentMoveSpeed = (Math.abs(inp.moveX) + Math.abs(inp.moveY) > 0.05) ? speed : 0;
+    this.currentMoveSpeed = isMovingInput ? speed : 0;
 
     // 朝向移动向量（以 yaw 为参考）
     if (this.currentMoveSpeed > 0) {
@@ -376,6 +394,14 @@ export class GameManager {
         this.collected++;
         this.score += 100;
         audio.collect();
+        // 拾取噪音：附近妈妈被吸引
+        for (const mom of this.moms) {
+          const md = Math.hypot(mom.pos.x - this.playerPos.x, mom.pos.z - this.playerPos.z);
+          if (md < ITEM_PICKUP_NOISE) {
+            mom.suspicion = clamp(mom.suspicion + 18, 0, MOM_SUSPICION_ALERT);
+            mom.investigatePos = new THREE.Vector3(this.playerPos.x, 1.55, this.playerPos.z);
+          }
+        }
       }
     }
 
@@ -575,8 +601,8 @@ export class GameManager {
         mom.suspicion = clamp(mom.suspicion + 25 * susRate * dt, 0, MOM_SUSPICION_ALERT - 5);
         mom.investigatePos = playerEye.clone();
       } else {
-        // 缓慢衰减
-        mom.suspicion = Math.max(0, mom.suspicion - 8 * dt);
+        // 缓慢衰减（比原来慢，更难甩掉妈妈）
+        mom.suspicion = Math.max(0, mom.suspicion - MOM_SUSPICION_DECAY * dt);
       }
 
       // 状态转移
@@ -611,7 +637,8 @@ export class GameManager {
           if (mom.investigateT > 3.0) {
             mom.investigatePos = null;
             mom.investigateT = 0;
-            mom.suspicion = Math.max(0, mom.suspicion - 30);
+            // 调查完毕后保留最低怀疑度（妈妈心有余悸，不会完全忘记）
+            mom.suspicion = Math.max(MOM_SUSPICION_FLOOR, mom.suspicion - 30);
             mom.state = 'PATROL';
           } else {
             // 原地左右张望
@@ -750,6 +777,7 @@ export class GameManager {
         && Math.hypot(this.cat.x - this.playerPos.x, this.cat.z - this.playerPos.z) < CAT_PET_DIST,
       catX: this.cat.x, catZ: this.cat.z,
       creakNotice: this.creakNotice,
+      stamina: this.stamina,
     };
     this.cb.onState(s);
   }

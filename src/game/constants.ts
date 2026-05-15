@@ -115,3 +115,18 @@ export const HIDE_SUSPICION_DECAY = 35;    // 隐藏时怀疑度每秒下降
 // 5. 幽灵潜行
 export const GHOST_RUN_BONUS = 1500;
 export const GHOST_RUN_MAX_SUSPICION = 15;
+
+// === 难度强化 ===
+// 体力系统（跑步消耗，否则只能走）
+export const STAMINA_MAX = 100;
+export const STAMINA_RUN_DRAIN = 22;      // /s 跑步消耗
+export const STAMINA_WALK_REGEN = 10;     // /s 走路/站立回复
+export const STAMINA_CROUCH_REGEN = 18;   // /s 蹲行回复最快
+export const STAMINA_REUSE_MIN = 25;      // 体力耗尽后需恢复到此值才能再跑
+
+// 拾取物品发出的噪音
+export const ITEM_PICKUP_NOISE = 3.0;     // 半径内妈妈被吸引
+
+// 妈妈：更慢的怀疑度衰减 + 调查后保留最低怀疑度
+export const MOM_SUSPICION_DECAY = 4.0;   // /s（原为 8，降低让妈妈更难忘记）
+export const MOM_SUSPICION_FLOOR = 18;    // 完成调查后保留的最低怀疑度

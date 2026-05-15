@@ -754,10 +754,23 @@ interface ArenaLobbyProps {
 function ArenaLobby({ connected, error, onCreateOffer, onAcceptOffer, onFinalizeAnswer, onLaunch, onBack }: ArenaLobbyProps) {
   const [mode, setMode] = useState<'choose' | 'host' | 'guest'>('choose');
   const [loading, setLoading] = useState(false);
-  const [mySDP, setMySDP] = useState('');       // 己方生成的 SDP（邀请码 or 回复码）
-  const [peerInput, setPeerInput] = useState(''); // 粘贴对方 SDP 的输入框
+  const [mySDP, setMySDP] = useState('');
+  const [peerInput, setPeerInput] = useState('');
   const [copied, setCopied] = useState(false);
   const [finalized, setFinalized] = useState(false);
+  const [connectTimeout, setConnectTimeout] = useState(false); // 超时标志
+
+  // 确认回复码后启动 15 秒超时
+  useEffect(() => {
+    if (!finalized || connected || connectTimeout) return;
+    const t = setTimeout(() => setConnectTimeout(true), 15000);
+    return () => clearTimeout(t);
+  }, [finalized, connected, connectTimeout]);
+
+  // 连接成功后清除超时标志
+  useEffect(() => {
+    if (connected) setConnectTimeout(false);
+  }, [connected]);
 
   function doCopy(text: string) {
     navigator.clipboard?.writeText(text).then(() => {
@@ -841,8 +854,15 @@ function ArenaLobby({ connected, error, onCreateOffer, onAcceptOffer, onFinalize
                       确认连接
                     </button>
                   </>
+                ) : !connectTimeout ? (
+                  <div className="arena-lobby-status anim">⏳ 正在建立 P2P 连接…（最长约 15 秒）</div>
                 ) : (
-                  <div className="arena-lobby-status anim">⏳ 正在建立连接…</div>
+                  <div className="arena-lobby-error">
+                    ❌ 连接超时。常见原因：<br/>
+                    • 两设备需在<b>同一 WiFi</b>，或<br/>
+                    • 双方均开启同一代理/VPN<br/>
+                    <button className="menu-btn secondary" style={{ marginTop: 8 }} onClick={onBack}>返回重试</button>
+                  </div>
                 )}
               </>
             )}
@@ -888,7 +908,10 @@ function ArenaLobby({ connected, error, onCreateOffer, onAcceptOffer, onFinalize
                     {copied ? '✅已复制' : '复制'}
                   </button>
                 </div>
-                <div className="arena-lobby-status anim">⏳ 等待主机确认连接…</div>
+                {!connectTimeout
+                  ? <div className="arena-lobby-status anim">⏳ 等待主机确认连接…</div>
+                  : <div className="arena-lobby-error">❌ 连接超时，请让主机点"确认连接"后重试</div>
+                }
               </>
             )}
 

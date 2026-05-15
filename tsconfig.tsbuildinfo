@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/game/gamemanager.ts","./src/game/inputmanager.ts","./src/game/phonegame.ts","./src/game/threescene.ts","./src/game/audio.ts","./src/game/constants.ts","./src/game/utils.ts"],"version":"5.9.3"}

@@ -117,21 +117,25 @@ export default function App() {
     setArenaIsHost(false);
   }
 
-  function doCreateRoom() {
+  async function doCreateOffer(): Promise<string> {
     setArenaError('');
     const net = new MultiplayerManager({
       onConnected: () => setArenaConnected(true),
       onDisconnected: () => { setArenaConnected(false); setArenaError('对手已断线'); },
-      onMessage: () => {},  // 由 ArenaGame 接管
+      onMessage: () => {},
       onError: (e) => setArenaError(e),
     });
     netRef.current = net;
     setArenaIsHost(true);
-    net.createRoom((code) => setArenaRoomCode(code));
+    try {
+      return await net.createOffer();
+    } catch (e) {
+      setArenaError(String(e));
+      throw e;
+    }
   }
 
-  function doJoinRoom(code: string) {
-    if (!code.trim()) { setArenaError('请输入房间码'); return; }
+  async function doAcceptOffer(b64: string): Promise<string> {
     setArenaError('');
     const net = new MultiplayerManager({
       onConnected: () => setArenaConnected(true),
@@ -141,7 +145,16 @@ export default function App() {
     });
     netRef.current = net;
     setArenaIsHost(false);
-    net.joinRoom(code, () => {});
+    try {
+      return await net.acceptOffer(b64);
+    } catch (e) {
+      setArenaError(String(e));
+      throw e;
+    }
+  }
+
+  function doFinalizeAnswer(b64: string) {
+    netRef.current?.finalizeAnswer(b64).catch(e => setArenaError(String(e)));
   }
 
   function launchArena() {
@@ -430,12 +443,11 @@ export default function App() {
       {/* ====== 多人竞技大厅 ====== */}
       {inArena && arenaPhase === 'lobby' && (
         <ArenaLobby
-          isHost={arenaIsHost}
-          roomCode={arenaRoomCode}
           connected={arenaConnected}
           error={arenaError}
-          onCreateRoom={doCreateRoom}
-          onJoinRoom={doJoinRoom}
+          onCreateOffer={doCreateOffer}
+          onAcceptOffer={doAcceptOffer}
+          onFinalizeAnswer={doFinalizeAnswer}
           onLaunch={launchArena}
           onBack={exitArena}
         />
@@ -731,25 +743,56 @@ function Minimap({ st }: { st: ManagerState }) {
 
 // ===== 多人竞技大厅 =====
 interface ArenaLobbyProps {
-  isHost: boolean;
-  roomCode: string;
   connected: boolean;
   error: string;
-  onCreateRoom: () => void;
-  onJoinRoom: (code: string) => void;
+  onCreateOffer: () => Promise<string>;
+  onAcceptOffer: (b64: string) => Promise<string>;
+  onFinalizeAnswer: (b64: string) => void;
   onLaunch: () => void;
   onBack: () => void;
 }
-function ArenaLobby({ isHost, roomCode, connected, error, onCreateRoom, onJoinRoom, onLaunch, onBack }: ArenaLobbyProps) {
-  const [joinCode, setJoinCode] = useState('');
+function ArenaLobby({ connected, error, onCreateOffer, onAcceptOffer, onFinalizeAnswer, onLaunch, onBack }: ArenaLobbyProps) {
   const [mode, setMode] = useState<'choose' | 'host' | 'guest'>('choose');
+  const [loading, setLoading] = useState(false);
+  const [mySDP, setMySDP] = useState('');       // 己方生成的 SDP（邀请码 or 回复码）
+  const [peerInput, setPeerInput] = useState(''); // 粘贴对方 SDP 的输入框
+  const [copied, setCopied] = useState(false);
+  const [finalized, setFinalized] = useState(false);
 
-  function handleHost() {
-    setMode('host');
-    onCreateRoom();
+  function doCopy(text: string) {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => { /* old browsers */ });
   }
-  function handleGuest() {
-    setMode('guest');
+
+  async function handleHostStart() {
+    setMode('host');
+    setLoading(true);
+    setMySDP('');
+    try {
+      const offer = await onCreateOffer();
+      setMySDP(offer);
+    } catch { /* error shown via App state */ }
+    setLoading(false);
+  }
+
+  async function handleGuestJoin() {
+    if (!peerInput.trim()) return;
+    setLoading(true);
+    setMySDP('');
+    try {
+      const answer = await onAcceptOffer(peerInput.trim());
+      setMySDP(answer);
+    } catch { /* error shown via App state */ }
+    setLoading(false);
+  }
+
+  function handleFinalize() {
+    if (!peerInput.trim()) return;
+    onFinalizeAnswer(peerInput.trim());
+    setFinalized(true);
+    setPeerInput('');
   }
 
   return (
@@ -761,59 +804,97 @@ function ArenaLobby({ isHost, roomCode, connected, error, onCreateRoom, onJoinRo
           <small>每局 6 发弹匣 · 爆头 2 发击杀 · 身体 4 发击杀</small>
         </p>
 
+        {/* ---- 选择角色 ---- */}
         {mode === 'choose' && (
           <div className="arena-lobby-btns">
-            <button className="menu-btn" onClick={handleHost}>🏠 创建房间（主机）</button>
-            <button className="menu-btn" onClick={handleGuest}>🔗 加入房间（输入码）</button>
+            <button className="menu-btn" onClick={handleHostStart}>🏠 创建房间（主机）</button>
+            <button className="menu-btn" onClick={() => setMode('guest')}>🔗 加入房间（输入邀请码）</button>
             <button className="menu-btn secondary" onClick={onBack}>← 返回主菜单</button>
           </div>
         )}
 
+        {/* ---- 主机流程 ---- */}
         {mode === 'host' && (
           <div className="arena-lobby-host">
-            {!roomCode && <div className="arena-lobby-status anim">正在创建房间…</div>}
-            {roomCode && (
+            {loading && <div className="arena-lobby-status anim">⏳ 正在生成邀请码（约 6 秒）…</div>}
+
+            {!loading && mySDP && !connected && (
               <>
-                <div className="arena-room-code-label">把这个房间码告诉对手：</div>
-                <div className="arena-room-code">{roomCode}</div>
-                {!connected && <div className="arena-lobby-status anim">⏳ 等待对手加入…</div>}
-                {connected && (
+                <div className="arena-sdp-label">① 把邀请码发给对手（可通过微信/QQ等发送）：</div>
+                <div className="arena-sdp-wrap">
+                  <textarea className="arena-sdp-box" readOnly value={mySDP} onClick={e => (e.target as HTMLTextAreaElement).select()} />
+                  <button className="arena-copy-btn" onClick={() => doCopy(mySDP)}>
+                    {copied ? '✅已复制' : '复制'}
+                  </button>
+                </div>
+
+                {!finalized ? (
                   <>
-                    <div className="arena-lobby-status ok">✅ 对手已连接！</div>
-                    <button className="menu-btn" style={{ marginTop: 16 }} onClick={onLaunch}>🚀 开始游戏</button>
+                    <div className="arena-sdp-label" style={{ marginTop: 14 }}>② 等对手发来回复码，粘贴到这里：</div>
+                    <textarea
+                      className="arena-sdp-box input"
+                      placeholder="粘贴对方回复码…"
+                      value={peerInput}
+                      onChange={e => setPeerInput(e.target.value)}
+                    />
+                    <button className="menu-btn" style={{ marginTop: 8 }} onClick={handleFinalize} disabled={!peerInput.trim()}>
+                      确认连接
+                    </button>
                   </>
+                ) : (
+                  <div className="arena-lobby-status anim">⏳ 正在建立连接…</div>
                 )}
               </>
             )}
-            {/* 有房间码时只显示轻量警告（信令 WS 断开是正常现象，不影响 WebRTC） */}
-            {error && !roomCode && <div className="arena-lobby-error">❌ 创建失败：{error}</div>}
-            {error && roomCode && <div className="arena-lobby-warn">⚠️ 信令服务器短暂断线，WebRTC 连接通常仍可建立</div>}
+
+            {connected && (
+              <>
+                <div className="arena-lobby-status ok">✅ 连接成功！</div>
+                <button className="menu-btn" style={{ marginTop: 16 }} onClick={onLaunch}>🚀 开始游戏</button>
+              </>
+            )}
+
+            {error && <div className="arena-lobby-error" style={{ marginTop: 8 }}>❌ {error}</div>}
             <button className="menu-btn secondary" style={{ marginTop: 12 }} onClick={onBack}>← 取消</button>
           </div>
         )}
 
+        {/* ---- 客机流程 ---- */}
         {mode === 'guest' && (
           <div className="arena-lobby-guest">
-            {!connected ? (
+            {!mySDP && !loading && (
               <>
-                <div className="arena-lobby-status">输入主机给你的 6 位房间码：</div>
-                <input
-                  className="arena-code-input"
-                  maxLength={6}
-                  value={joinCode}
-                  placeholder="例：AB3XYZ"
-                  onChange={e => setJoinCode(e.target.value.toUpperCase())}
-                  onKeyDown={e => { if (e.key === 'Enter') onJoinRoom(joinCode); }}
+                <div className="arena-sdp-label">粘贴主机发来的邀请码：</div>
+                <textarea
+                  className="arena-sdp-box input"
+                  placeholder="粘贴邀请码…"
+                  value={peerInput}
+                  onChange={e => setPeerInput(e.target.value)}
                 />
-                <button className="menu-btn" onClick={() => onJoinRoom(joinCode)}>加入</button>
-                {error && <div className="arena-lobby-error">❌ {error}</div>}
-              </>
-            ) : (
-              <>
-                <div className="arena-lobby-status ok">✅ 已连接！等待主机开始游戏…</div>
-                {error && <div className="arena-lobby-error">❌ {error}</div>}
+                <button className="menu-btn" style={{ marginTop: 8 }} onClick={handleGuestJoin} disabled={!peerInput.trim()}>
+                  解析并加入
+                </button>
               </>
             )}
+
+            {loading && <div className="arena-lobby-status anim">⏳ 正在生成回复码…</div>}
+
+            {!loading && mySDP && !connected && (
+              <>
+                <div className="arena-sdp-label">把回复码发回给主机：</div>
+                <div className="arena-sdp-wrap">
+                  <textarea className="arena-sdp-box" readOnly value={mySDP} onClick={e => (e.target as HTMLTextAreaElement).select()} />
+                  <button className="arena-copy-btn" onClick={() => doCopy(mySDP)}>
+                    {copied ? '✅已复制' : '复制'}
+                  </button>
+                </div>
+                <div className="arena-lobby-status anim">⏳ 等待主机确认连接…</div>
+              </>
+            )}
+
+            {connected && <div className="arena-lobby-status ok">✅ 已连接！等待主机开始游戏…</div>}
+
+            {error && <div className="arena-lobby-error" style={{ marginTop: 8 }}>❌ {error}</div>}
             <button className="menu-btn secondary" style={{ marginTop: 12 }} onClick={onBack}>← 取消</button>
           </div>
         )}

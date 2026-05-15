@@ -354,12 +354,34 @@ code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px;
 .arena-lobby-desc  { color: #aac; font-size: 0.92em; margin-bottom: 24px; line-height: 1.6; }
 .arena-lobby-desc b { color: #fff; }
 .arena-lobby-btns  { display: flex; flex-direction: column; gap: 10px; }
-.arena-lobby-host, .arena-lobby-guest { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.arena-lobby-host, .arena-lobby-guest { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
 .arena-lobby-status { color: #aad; font-size: 0.95em; }
 .arena-lobby-status.anim { animation: pulse 1.2s infinite alternate; }
 .arena-lobby-status.ok   { color: #4ade80; }
 .arena-lobby-warn  { color: #fbbf24; font-size: 0.82em; background: rgba(251,191,36,0.1); padding: 5px 12px; border-radius: 8px; }
 .arena-lobby-error { color: #f87171; font-size: 0.88em; background: rgba(239,68,68,0.12); padding: 6px 12px; border-radius: 8px; }
+
+/* SDP 邀请码/回复码 文本框 */
+.arena-sdp-label { color: #aad; font-size: 0.88em; align-self: flex-start; }
+.arena-sdp-wrap  { display: flex; gap: 6px; width: 100%; align-items: flex-start; }
+.arena-sdp-box {
+  flex: 1; min-height: 72px; max-height: 110px; resize: none;
+  background: rgba(0,229,255,0.06); border: 1.5px solid #00e5ff44;
+  color: #cce; font-size: 0.72em; font-family: monospace; word-break: break-all;
+  border-radius: 8px; padding: 6px 8px; outline: none; width: 100%;
+}
+.arena-sdp-box.input {
+  background: rgba(255,255,255,0.05); border-color: #ffffff33; color: #eee;
+  min-height: 80px;
+}
+.arena-sdp-box.input:focus { border-color: #00e5ff; box-shadow: 0 0 8px #00e5ff33; }
+.arena-copy-btn {
+  flex-shrink: 0; padding: 6px 10px; font-size: 0.78em;
+  background: rgba(0,229,255,0.15); border: 1px solid #00e5ff66;
+  color: #00e5ff; border-radius: 8px; cursor: pointer; white-space: nowrap;
+}
+.arena-copy-btn:hover { background: rgba(0,229,255,0.28); }
+
 .arena-room-code-label { color: #aab; font-size: 0.9em; }
 .arena-room-code {
   font-size: 2.8em; font-weight: 900; letter-spacing: 0.18em;

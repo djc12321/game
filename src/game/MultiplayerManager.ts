@@ -1,10 +1,10 @@
-// 多人联机管理器：基于 PeerJS WebRTC P2P（无需服务器）
-import { Peer } from 'peerjs';
-import type { DataConnection } from 'peerjs';
+// 多人联机管理器：纯 WebRTC DataChannel，无需任何服务器
+// 连接流程：
+//   主机：createOffer() → 邀请码 → 粘贴对方回复码 → finalizeAnswer()
+//   客机：acceptOffer(邀请码) → 回复码 → 等待连接建立（自动）
 
 export type NetRole = 'host' | 'guest';
 
-/** 所有网络消息类型（精简编码以降低带宽） */
 export type NetMsg =
   | { t: 'pos'; x: number; y: number; z: number; yaw: number; pitch: number }
   | { t: 'shot'; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }
@@ -19,74 +19,97 @@ export interface MpCallbacks {
   onError: (err: string) => void;
 }
 
-function genCode(): string {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({ length: 6 }, () => c[Math.floor(Math.random() * c.length)]).join('');
-}
+// 混用国内外 STUN，提升成功率
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.qq.com:3478' },
+  { urls: 'stun:stun.miwifi.com:3478' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
 
-const PEER_PREFIX = 'msneak2024-';
+const ICE_TIMEOUT_MS = 6000;
 
 export class MultiplayerManager {
-  private peer: Peer | null = null;
-  private conn: DataConnection | null = null;
+  private pc: RTCPeerConnection | null = null;
+  private dc: RTCDataChannel | null = null;
   cb: MpCallbacks;
   role: NetRole | null = null;
-  roomCode = '';
   connected = false;
 
   constructor(cb: MpCallbacks) {
     this.cb = cb;
   }
 
-  /** 创建房间（主机方） */
-  createRoom(onCode: (code: string) => void) {
-    this.roomCode = genCode();
+  private _mkPC(): RTCPeerConnection {
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    this.pc = pc;
+    return pc;
+  }
+
+  private _setupDC(dc: RTCDataChannel) {
+    this.dc = dc;
+    dc.onopen = () => { this.connected = true; this.cb.onConnected(); };
+    dc.onclose = () => { this.connected = false; this.cb.onDisconnected(); };
+    dc.onerror = (e) => this.cb.onError(String(e));
+    dc.onmessage = (e) => {
+      try { this.cb.onMessage(JSON.parse(e.data as string) as NetMsg); } catch { /* ignore */ }
+    };
+  }
+
+  private _gatherSDP(pc: RTCPeerConnection): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (pc.iceGatheringState === 'complete' && pc.localDescription) {
+        resolve(btoa(JSON.stringify(pc.localDescription.toJSON())));
+        return;
+      }
+      const done = () => {
+        if (pc.localDescription) resolve(btoa(JSON.stringify(pc.localDescription.toJSON())));
+        else reject(new Error('无法获取本地描述，请刷新重试'));
+      };
+      const timer = setTimeout(done, ICE_TIMEOUT_MS);
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete') { clearTimeout(timer); done(); }
+      };
+    });
+  }
+
+  /** 主机第 1 步：生成邀请码（Base64 Offer SDP） */
+  async createOffer(): Promise<string> {
     this.role = 'host';
-    this.peer = new Peer(PEER_PREFIX + this.roomCode);
-    this.peer.on('open', () => onCode(this.roomCode));
-    this.peer.on('connection', (conn) => {
-      this.conn = conn;
-      this._setup(conn, () => {
-        this.connected = true;
-        this.cb.onConnected();
-      });
-    });
-    this.peer.on('error', (e) => this.cb.onError((e as Error).message ?? String(e)));
+    const pc = this._mkPC();
+    const dc = pc.createDataChannel('game', { ordered: false, maxRetransmits: 0 });
+    this._setupDC(dc);
+    await pc.setLocalDescription(await pc.createOffer());
+    return this._gatherSDP(pc);
   }
 
-  /** 加入房间（客户方） */
-  joinRoom(code: string, onConnected: () => void) {
-    this.roomCode = code.trim().toUpperCase();
+  /** 客机：接受邀请码，生成回复码（Base64 Answer SDP） */
+  async acceptOffer(offerB64: string): Promise<string> {
     this.role = 'guest';
-    this.peer = new Peer();
-    this.peer.on('open', () => {
-      const conn = this.peer!.connect(PEER_PREFIX + this.roomCode, { reliable: false, serialization: 'json' });
-      this.conn = conn;
-      this._setup(conn, () => {
-        this.connected = true;
-        onConnected();
-        this.cb.onConnected();
-      });
-    });
-    this.peer.on('error', (e) => this.cb.onError((e as Error).message ?? String(e)));
+    const pc = this._mkPC();
+    pc.ondatachannel = (e) => this._setupDC(e.channel);
+    const offer = JSON.parse(atob(offerB64.trim())) as RTCSessionDescriptionInit;
+    await pc.setRemoteDescription(offer);
+    await pc.setLocalDescription(await pc.createAnswer());
+    return this._gatherSDP(pc);
   }
 
-  private _setup(conn: DataConnection, onOpen: () => void) {
-    conn.on('open', onOpen);
-    conn.on('data', (d) => this.cb.onMessage(d as NetMsg));
-    conn.on('close', () => { this.connected = false; this.cb.onDisconnected(); });
-    conn.on('error', (e) => this.cb.onError(String(e)));
+  /** 主机第 2 步：接受回复码，握手完成（DataChannel open 后自动触发 onConnected） */
+  async finalizeAnswer(answerB64: string): Promise<void> {
+    const answer = JSON.parse(atob(answerB64.trim())) as RTCSessionDescriptionInit;
+    await this.pc!.setRemoteDescription(answer);
   }
 
   send(msg: NetMsg) {
-    if (this.conn?.open) this.conn.send(msg);
+    if (this.dc?.readyState === 'open') this.dc.send(JSON.stringify(msg));
   }
 
   dispose() {
-    this.conn?.close();
-    this.peer?.destroy();
-    this.conn = null;
-    this.peer = null;
+    try { this.dc?.close(); } catch { /* ignore */ }
+    try { this.pc?.close(); } catch { /* ignore */ }
+    this.dc = null;
+    this.pc = null;
     this.connected = false;
   }
 }

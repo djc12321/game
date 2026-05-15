@@ -19,11 +19,34 @@ export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const managerRef = useRef<GameManager | null>(null);
   const mobile = isMobile();
+  const [isPortrait, setIsPortrait] = useState(
+    () => mobile && window.matchMedia('(orientation: portrait)').matches
+  );
+
+  // 监听屏幕方向变化
+  useEffect(() => {
+    if (!mobile) return;
+    const mq = window.matchMedia('(orientation: portrait)');
+    const handler = (e: MediaQueryListEvent) => setIsPortrait(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [mobile]);
 
   useEffect(() => { audio.setEnabled(save.soundEnabled); }, [save.soundEnabled]);
 
+  // 请求全屏并锁定横屏（移动端）
+  async function requestLandscapeFullscreen() {
+    try {
+      const el = document.documentElement;
+      if (el.requestFullscreen) await el.requestFullscreen();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (screen.orientation as any).lock('landscape').catch(() => {});
+    } catch { /* 部分浏览器不支持，静默忽略 */ }
+  }
+
   function startGame(level: number, difficulty: Difficulty) {
     audio.init(); audio.resume();
+    if (mobile) requestLandscapeFullscreen();
     setSave(s => { const n = { ...s, difficulty }; saveData(n); return n; });
     setSelectedLevel(level);
     setEndInfo(null);
@@ -54,6 +77,7 @@ export default function App() {
     managerRef.current = null;
     setState('MENU');
     setMState(null);
+    if (mobile && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }
 
   useEffect(() => () => { managerRef.current?.dispose(); }, []);
@@ -62,6 +86,14 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* 移动端竖屏提示 */}
+      {mobile && isPortrait && inGame && (
+        <div className="portrait-overlay">
+          <div className="portrait-icon">📱</div>
+          <div className="portrait-text">请将手机横过来<br /><span>以获得最佳游戏体验</span></div>
+        </div>
+      )}
+
       {/* ====== 菜单 ====== */}
       {state === 'MENU' && (
         <div className="menu">

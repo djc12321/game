@@ -8,6 +8,8 @@ import {
 import { loadSave, saveData, isMobile, fmtTime } from './game/utils';
 import { audio } from './game/audio';
 import { type InputManager } from './game/InputManager';
+import { ArenaGame, type ArenaState } from './game/ArenaGame';
+import { MultiplayerManager } from './game/MultiplayerManager';
 
 export default function App() {
   const [save, setSave] = useState(loadSave);
@@ -24,6 +26,18 @@ export default function App() {
     () => mobile && window.matchMedia('(orientation: portrait)').matches
   );
   const [dismissedPortrait, setDismissedPortrait] = useState(false);
+
+  // ===== 多人竞技 =====
+  const [arenaPhase, setArenaPhase] = useState<'none' | 'lobby' | 'playing' | 'ended'>('none');
+  const [arenaIsHost, setArenaIsHost] = useState(false);
+  const [arenaRoomCode, setArenaRoomCode] = useState('');
+  const [arenaConnected, setArenaConnected] = useState(false);
+  const [arenaError, setArenaError] = useState('');
+  const [arenaSt, setArenaSt] = useState<ArenaState | null>(null);
+  const [arenaEndInfo, setArenaEndInfo] = useState<{ won: boolean; myKills: number; enemyKills: number } | null>(null);
+  const arenaGameRef = useRef<ArenaGame | null>(null);
+  const netRef = useRef<MultiplayerManager | null>(null);
+  const arenaContainerRef = useRef<HTMLDivElement>(null);
 
   // 监听屏幕方向变化
   useEffect(() => {
@@ -87,14 +101,94 @@ export default function App() {
     if (mobile && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }
 
-  useEffect(() => () => { managerRef.current?.dispose(); }, []);
+  useEffect(() => () => {
+    managerRef.current?.dispose();
+    arenaGameRef.current?.dispose();
+    netRef.current?.dispose();
+  }, []);
+
+  // ===== 多人竞技函数 =====
+  function openArenaLobby() {
+    audio.click();
+    setArenaPhase('lobby');
+    setArenaConnected(false);
+    setArenaRoomCode('');
+    setArenaError('');
+    setArenaIsHost(false);
+  }
+
+  function doCreateRoom() {
+    setArenaError('');
+    const net = new MultiplayerManager({
+      onConnected: () => setArenaConnected(true),
+      onDisconnected: () => { setArenaConnected(false); setArenaError('对手已断线'); },
+      onMessage: () => {},  // 由 ArenaGame 接管
+      onError: (e) => setArenaError(e),
+    });
+    netRef.current = net;
+    setArenaIsHost(true);
+    net.createRoom((code) => setArenaRoomCode(code));
+  }
+
+  function doJoinRoom(code: string) {
+    if (!code.trim()) { setArenaError('请输入房间码'); return; }
+    setArenaError('');
+    const net = new MultiplayerManager({
+      onConnected: () => setArenaConnected(true),
+      onDisconnected: () => { setArenaConnected(false); setArenaError('对手已断线'); },
+      onMessage: () => {},
+      onError: (e) => setArenaError(e),
+    });
+    netRef.current = net;
+    setArenaIsHost(false);
+    net.joinRoom(code, () => {});
+  }
+
+  function launchArena() {
+    if (!netRef.current || !arenaContainerRef.current) return;
+    if (mobile) requestLandscapeFullscreen();
+    setDismissedPortrait(false);
+    setArenaPhase('playing');
+    requestAnimationFrame(() => {
+      if (!arenaContainerRef.current || !netRef.current) return;
+      arenaGameRef.current?.dispose();
+      arenaGameRef.current = new ArenaGame(
+        arenaContainerRef.current,
+        netRef.current,
+        {
+          onState: (s) => setArenaSt(s),
+          onEnd: (won, myKills, enemyKills) => {
+            setArenaEndInfo({ won, myKills, enemyKills });
+            setArenaPhase('ended');
+          },
+        },
+        arenaIsHost,
+      );
+    });
+  }
+
+  function exitArena() {
+    arenaGameRef.current?.dispose();
+    arenaGameRef.current = null;
+    netRef.current?.dispose();
+    netRef.current = null;
+    setArenaPhase('none');
+    setArenaConnected(false);
+    setArenaRoomCode('');
+    setArenaError('');
+    setArenaSt(null);
+    setArenaEndInfo(null);
+    if (mobile && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+
+  const inArena = arenaPhase !== 'none';
 
   const inGame = state === 'PLAYING' || state === 'PAUSED' || state === 'WIN' || state === 'LOSE';
 
   return (
     <div className="app">
       {/* 移动端竖屏提示 */}
-      {mobile && isPortrait && inGame && !dismissedPortrait && (
+      {mobile && isPortrait && (inGame || arenaPhase === 'playing') && !dismissedPortrait && (
         <div className="portrait-overlay">
           <div className="portrait-icon">📱</div>
           <div className="portrait-text">建议横屏游玩<br /><span>体验更佳</span></div>
@@ -103,7 +197,7 @@ export default function App() {
       )}
 
       {/* ====== 菜单 ====== */}
-      {state === 'MENU' && (
+      {state === 'MENU' && !inArena && (
         <div className="menu">
           <h1 className="menu-title">深夜潜行</h1>
           <div className="menu-sub">— Midnight Sneak FPS —</div>
@@ -139,6 +233,9 @@ export default function App() {
           <div className="menu-btns">
             <button className="menu-btn" onClick={() => { audio.click(); startGame(selectedLevel, save.difficulty); }}>
               ▶ 开始（第 {selectedLevel} 关 · {DIFFICULTY_LABELS[save.difficulty]}）
+            </button>
+            <button className="menu-btn arena-entry" onClick={openArenaLobby}>
+              ⚔️ 多人竞技对枪
             </button>
             <button className="menu-btn secondary" onClick={() => { audio.click(); setShowTutorial(true); }}>📖 操作说明</button>
             <button className="menu-btn secondary" onClick={() => {
@@ -326,6 +423,114 @@ export default function App() {
               <button className="menu-btn" onClick={() => startGame(selectedLevel, save.difficulty)}>重试</button>
               <button className="menu-btn secondary" style={{ marginTop: 12 }} onClick={exitToMenu}>返回菜单</button>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ====== 多人竞技大厅 ====== */}
+      {inArena && arenaPhase === 'lobby' && (
+        <ArenaLobby
+          isHost={arenaIsHost}
+          roomCode={arenaRoomCode}
+          connected={arenaConnected}
+          error={arenaError}
+          onCreateRoom={doCreateRoom}
+          onJoinRoom={doJoinRoom}
+          onLaunch={launchArena}
+          onBack={exitArena}
+        />
+      )}
+
+      {/* ====== 竞技场游戏 ====== */}
+      {(arenaPhase === 'playing' || arenaPhase === 'ended') && (
+        <div className="game-root">
+          <div className="three-container" ref={arenaContainerRef} />
+
+          {arenaSt && arenaPhase === 'playing' && (
+            <>
+              {/* 准星 */}
+              <div className={`arena-crosshair ${arenaSt.hitmarker > 0 ? 'hit' : ''}`}>+</div>
+              {/* 受击红屏 */}
+              {arenaSt.hitFlash > 0.05 && (
+                <div className="arena-hit-overlay" style={{ opacity: arenaSt.hitFlash * 0.55 }} />
+              )}
+              {/* 顶部比分 */}
+              <div className="arena-scoreboard">
+                <div className="arena-score mine">🟢 {arenaSt.myKills}</div>
+                <div className="arena-timer" style={{ color: arenaSt.timeLeft < 30 ? '#ef4444' : undefined }}>
+                  ⏱ {fmtTime(arenaSt.timeLeft)}
+                </div>
+                <div className="arena-score enemy">🔴 {arenaSt.enemyKills}</div>
+              </div>
+              {/* 底部状态：HP + 弹药 */}
+              <div className="arena-bottom-hud">
+                <div className="arena-hp-wrap">
+                  <span className="arena-hp-label">❤️</span>
+                  <div className="arena-hp-track">
+                    <div className="arena-hp-fill" style={{
+                      width: `${arenaSt.hp}%`,
+                      background: arenaSt.hp < 30 ? '#ef4444' : arenaSt.hp < 60 ? '#f97316' : '#4ade80',
+                    }} />
+                  </div>
+                  <span className="arena-hp-num">{arenaSt.hp}</span>
+                </div>
+                <div className="arena-ammo-wrap">
+                  {arenaSt.reloading ? (
+                    <div className="arena-reload-bar">
+                      <div className="arena-reload-fill" style={{ width: `${arenaSt.reloadPct * 100}%` }} />
+                      <span>换弹中…</span>
+                    </div>
+                  ) : (
+                    <div className="arena-ammo">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div key={i} className={`arena-bullet ${i < arenaSt.ammo ? 'full' : 'empty'}`} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* 死亡复活提示 */}
+              {!arenaSt.isAlive && (
+                <div className="arena-dead-overlay">
+                  <div className="arena-dead-text">💀 阵亡</div>
+                  <div className="arena-dead-sub">{Math.ceil(arenaSt.respawnT)}s 后复活</div>
+                </div>
+              )}
+              {/* PointerLock 提示 */}
+              {!mobile && !arenaSt.pointerLocked && (
+                <div className="lock-hint">
+                  <div>🖥️ 点击画面开始<br /><b>WASD</b> 移动 · <b>鼠标移动</b>视角 · <b>鼠标左键</b>射击 · <b>R/E</b>换弹 · <b>Ctrl</b>跑步</div>
+                </div>
+              )}
+              {/* 控制提示 */}
+              {!mobile && arenaSt.pointerLocked && (
+                <div className="controls-hint">
+                  <b>鼠标左键</b>射击 · <b>R/E</b>换弹 · <b>WASD</b>移动 · <b>Ctrl</b>跑 · <b>Esc</b>释放鼠标
+                </div>
+              )}
+            </>
+          )}
+
+          {arenaPhase === 'ended' && arenaEndInfo && (
+            <div className="modal">
+              <h2 style={{ color: arenaEndInfo.won ? '#4ade80' : '#ef4444' }}>
+                {arenaEndInfo.won ? '🏆 你赢了！' : '💀 对手获胜'}
+              </h2>
+              <p style={{ fontSize: '1.2em' }}>
+                <span style={{ color: '#4ade80' }}>你的击杀：{arenaEndInfo.myKills}</span>
+                {'　vs　'}
+                <span style={{ color: '#ef4444' }}>对手击杀：{arenaEndInfo.enemyKills}</span>
+              </p>
+              <button className="menu-btn" onClick={launchArena} style={{ marginBottom: 10 }}>
+                🔄 再来一局
+              </button>
+              <button className="menu-btn secondary" onClick={exitArena}>返回菜单</button>
+            </div>
+          )}
+
+          {/* 退出按钮 */}
+          {arenaPhase === 'playing' && (
+            <button className="arena-exit-btn" onClick={exitArena} title="退出竞技场">✕</button>
           )}
         </div>
       )}
@@ -519,6 +724,99 @@ function Minimap({ st }: { st: ManagerState }) {
         <span><i style={{ background: '#fbbf24' }} />物品</span>
         <span><i style={{ background: '#ef4444' }} />妈妈</span>
         <span><i style={{ background: '#3b6ea6' }} />床</span>
+      </div>
+    </div>
+  );
+}
+
+// ===== 多人竞技大厅 =====
+interface ArenaLobbyProps {
+  isHost: boolean;
+  roomCode: string;
+  connected: boolean;
+  error: string;
+  onCreateRoom: () => void;
+  onJoinRoom: (code: string) => void;
+  onLaunch: () => void;
+  onBack: () => void;
+}
+function ArenaLobby({ isHost, roomCode, connected, error, onCreateRoom, onJoinRoom, onLaunch, onBack }: ArenaLobbyProps) {
+  const [joinCode, setJoinCode] = useState('');
+  const [mode, setMode] = useState<'choose' | 'host' | 'guest'>('choose');
+
+  function handleHost() {
+    setMode('host');
+    onCreateRoom();
+  }
+  function handleGuest() {
+    setMode('guest');
+  }
+
+  return (
+    <div className="arena-lobby">
+      <div className="arena-lobby-card">
+        <h2 className="arena-lobby-title">⚔️ 多人竞技对枪</h2>
+        <p className="arena-lobby-desc">
+          1v1 闪光枪竞技 · 先 <b>5 杀</b>或 5 分钟内最多击杀胜出<br />
+          <small>每局 6 发弹匣 · 爆头 2 发击杀 · 身体 4 发击杀</small>
+        </p>
+
+        {mode === 'choose' && (
+          <div className="arena-lobby-btns">
+            <button className="menu-btn" onClick={handleHost}>🏠 创建房间（主机）</button>
+            <button className="menu-btn" onClick={handleGuest}>🔗 加入房间（输入码）</button>
+            <button className="menu-btn secondary" onClick={onBack}>← 返回主菜单</button>
+          </div>
+        )}
+
+        {mode === 'host' && (
+          <div className="arena-lobby-host">
+            {!roomCode && <div className="arena-lobby-status anim">正在创建房间…</div>}
+            {roomCode && (
+              <>
+                <div className="arena-room-code-label">把这个房间码告诉对手：</div>
+                <div className="arena-room-code">{roomCode}</div>
+                {!connected && <div className="arena-lobby-status anim">⏳ 等待对手加入…</div>}
+                {connected && (
+                  <>
+                    <div className="arena-lobby-status ok">✅ 对手已连接！</div>
+                    <button className="menu-btn" style={{ marginTop: 16 }} onClick={onLaunch}>🚀 开始游戏</button>
+                  </>
+                )}
+              </>
+            )}
+            {/* 有房间码时只显示轻量警告（信令 WS 断开是正常现象，不影响 WebRTC） */}
+            {error && !roomCode && <div className="arena-lobby-error">❌ 创建失败：{error}</div>}
+            {error && roomCode && <div className="arena-lobby-warn">⚠️ 信令服务器短暂断线，WebRTC 连接通常仍可建立</div>}
+            <button className="menu-btn secondary" style={{ marginTop: 12 }} onClick={onBack}>← 取消</button>
+          </div>
+        )}
+
+        {mode === 'guest' && (
+          <div className="arena-lobby-guest">
+            {!connected ? (
+              <>
+                <div className="arena-lobby-status">输入主机给你的 6 位房间码：</div>
+                <input
+                  className="arena-code-input"
+                  maxLength={6}
+                  value={joinCode}
+                  placeholder="例：AB3XYZ"
+                  onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                  onKeyDown={e => { if (e.key === 'Enter') onJoinRoom(joinCode); }}
+                />
+                <button className="menu-btn" onClick={() => onJoinRoom(joinCode)}>加入</button>
+                {error && <div className="arena-lobby-error">❌ {error}</div>}
+              </>
+            ) : (
+              <>
+                <div className="arena-lobby-status ok">✅ 已连接！等待主机开始游戏…</div>
+                {error && <div className="arena-lobby-error">❌ {error}</div>}
+              </>
+            )}
+            <button className="menu-btn secondary" style={{ marginTop: 12 }} onClick={onBack}>← 取消</button>
+          </div>
+        )}
       </div>
     </div>
   );

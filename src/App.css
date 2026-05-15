@@ -331,3 +331,154 @@ code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px;
   height: 100%; border-radius: 3px;
   transition: width 0.1s linear, background 0.3s;
 }
+
+/* ================================================================
+   多人竞技 — 大厅
+   ================================================================ */
+.arena-lobby {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, #0a1a30 0%, #050810 100%);
+  z-index: 100;
+}
+.arena-lobby-card {
+  background: rgba(10,20,40,0.96);
+  border: 1.5px solid #00e5ff88;
+  border-radius: 16px;
+  padding: 32px 40px;
+  max-width: 480px; width: 90%;
+  text-align: center;
+  box-shadow: 0 0 40px #00e5ff22, 0 0 4px #00e5ff66;
+}
+.arena-lobby-title { color: #00e5ff; font-size: 1.7em; margin-bottom: 8px; text-shadow: 0 0 12px #00e5ff; }
+.arena-lobby-desc  { color: #aac; font-size: 0.92em; margin-bottom: 24px; line-height: 1.6; }
+.arena-lobby-desc b { color: #fff; }
+.arena-lobby-btns  { display: flex; flex-direction: column; gap: 10px; }
+.arena-lobby-host, .arena-lobby-guest { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.arena-lobby-status { color: #aad; font-size: 0.95em; }
+.arena-lobby-status.anim { animation: pulse 1.2s infinite alternate; }
+.arena-lobby-status.ok   { color: #4ade80; }
+.arena-lobby-warn  { color: #fbbf24; font-size: 0.82em; background: rgba(251,191,36,0.1); padding: 5px 12px; border-radius: 8px; }
+.arena-lobby-error { color: #f87171; font-size: 0.88em; background: rgba(239,68,68,0.12); padding: 6px 12px; border-radius: 8px; }
+.arena-room-code-label { color: #aab; font-size: 0.9em; }
+.arena-room-code {
+  font-size: 2.8em; font-weight: 900; letter-spacing: 0.18em;
+  color: #fff; text-shadow: 0 0 16px #00e5ff;
+  background: rgba(0,229,255,0.08);
+  border: 1.5px solid #00e5ff55;
+  border-radius: 10px; padding: 8px 24px;
+  user-select: all;
+}
+.arena-code-input {
+  background: rgba(0,229,255,0.07); border: 1.5px solid #00e5ff55;
+  color: #fff; font-size: 1.5em; text-align: center; letter-spacing: 0.12em;
+  border-radius: 8px; padding: 8px 16px; width: 200px; outline: none;
+  text-transform: uppercase;
+}
+.arena-code-input:focus { border-color: #00e5ff; box-shadow: 0 0 8px #00e5ff55; }
+
+/* 菜单入口按钮 */
+.menu-btn.arena-entry {
+  background: linear-gradient(135deg, rgba(0,80,120,0.7), rgba(0,30,60,0.8));
+  border-color: #00e5ff88;
+  color: #00e5ff;
+  text-shadow: 0 0 8px #00e5ff;
+}
+.menu-btn.arena-entry:hover { background: rgba(0,180,230,0.2); border-color: #00e5ff; }
+
+/* ================================================================
+   多人竞技 — 游戏内 HUD
+   ================================================================ */
+.arena-crosshair {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.6em; color: rgba(255,255,255,0.85);
+  text-shadow: 0 0 6px #000;
+  pointer-events: none; user-select: none;
+  transition: color 0.1s, text-shadow 0.1s;
+}
+.arena-crosshair.hit { color: #ff2244; text-shadow: 0 0 10px #ff2244; }
+
+.arena-hit-overlay {
+  position: absolute; inset: 0;
+  background: rgba(255,20,40,1);
+  pointer-events: none;
+  border: 6px solid rgba(255,40,60,0.7);
+  border-radius: 0;
+  box-sizing: border-box;
+}
+
+.arena-scoreboard {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 18px;
+  background: rgba(5,10,20,0.82);
+  border: 1px solid #00e5ff44;
+  border-radius: 30px;
+  padding: 6px 24px;
+}
+.arena-score.mine  { color: #4ade80; font-size: 1.4em; font-weight: 800; }
+.arena-score.enemy { color: #ff4455; font-size: 1.4em; font-weight: 800; }
+.arena-timer { color: #cce; font-size: 1.05em; }
+
+.arena-bottom-hud {
+  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(5,10,22,0.82);
+  border: 1px solid #00e5ff33;
+  border-radius: 14px;
+  padding: 10px 28px;
+  min-width: 220px;
+}
+.arena-hp-wrap { display: flex; align-items: center; gap: 8px; }
+.arena-hp-label { font-size: 1.1em; }
+.arena-hp-track {
+  width: 120px; height: 8px; border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  overflow: hidden;
+}
+.arena-hp-fill { height: 100%; border-radius: 4px; transition: width 0.1s, background 0.3s; }
+.arena-hp-num { color: #ddd; font-size: 0.9em; min-width: 28px; }
+
+.arena-ammo-wrap { display: flex; align-items: center; }
+.arena-ammo { display: flex; gap: 5px; align-items: center; }
+.arena-bullet {
+  width: 8px; height: 20px; border-radius: 4px 4px 2px 2px;
+  border: 1px solid #446;
+}
+.arena-bullet.full  { background: #00e5ff; box-shadow: 0 0 5px #00e5ff88; }
+.arena-bullet.empty { background: rgba(255,255,255,0.1); }
+
+.arena-reload-bar {
+  position: relative; width: 120px; height: 20px;
+  background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.arena-reload-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: #f97316; border-radius: 10px;
+  transition: width 0.1s linear;
+}
+.arena-reload-bar span { position: relative; color: #fff; font-size: 0.78em; }
+
+.arena-dead-overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.65);
+  pointer-events: none;
+}
+.arena-dead-text { font-size: 3em; font-weight: 900; color: #ff2244; text-shadow: 0 0 20px #ff2244; }
+.arena-dead-sub  { font-size: 1.3em; color: #ffaaaa; margin-top: 8px; }
+
+.arena-exit-btn {
+  position: absolute; top: 14px; right: 16px;
+  background: rgba(30,10,10,0.7); border: 1px solid #ff224466;
+  color: #ff4455; font-size: 1.1em; cursor: pointer;
+  border-radius: 8px; padding: 4px 12px;
+}
+.arena-exit-btn:hover { background: rgba(255,30,50,0.25); }
+
+@keyframes pulse {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+

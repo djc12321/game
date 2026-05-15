@@ -183,6 +183,31 @@ code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px;
 .m-act    { right: 16px; bottom: 130px; }
 .m-light  { right: 16px; bottom: 60px; }
 
+/* ===== 虚拟摇杆 ===== */
+.joystick-wrap {
+  position: absolute;
+  width: 160px; height: 160px;
+  margin-left: -80px; margin-top: -80px;
+  pointer-events: none;
+  z-index: 30;
+}
+.joystick-base {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(3px);
+}
+.joystick-thumb {
+  position: absolute;
+  left: calc(50% - 30px); top: calc(50% - 30px);
+  width: 60px; height: 60px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.38);
+  border: 2px solid rgba(255,255,255,0.65);
+  box-shadow: 0 0 14px rgba(255,255,255,0.18);
+}
+
 /* ===== 小地图 ===== */
 .minimap {
   position: absolute; top: 70px; right: 14px;

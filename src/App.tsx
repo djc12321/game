@@ -7,6 +7,7 @@ import {
 } from './game/constants';
 import { loadSave, saveData, isMobile, fmtTime } from './game/utils';
 import { audio } from './game/audio';
+import { type InputManager } from './game/InputManager';
 
 export default function App() {
   const [save, setSave] = useState(loadSave);
@@ -34,14 +35,18 @@ export default function App() {
 
   useEffect(() => { audio.setEnabled(save.soundEnabled); }, [save.soundEnabled]);
 
-  // 请求全屏并锁定横屏（移动端）
-  async function requestLandscapeFullscreen() {
-    try {
-      const el = document.documentElement;
-      if (el.requestFullscreen) await el.requestFullscreen();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (screen.orientation as any).lock('landscape').catch(() => {});
-    } catch { /* 部分浏览器不支持，静默忽略 */ }
+  // 请求全屏并锁定横屏（移动端）— 必须同步调用以保留用户手势上下文
+  function requestLandscapeFullscreen() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fs = (document.documentElement as any).requestFullscreen
+      ?? (document.documentElement as any).webkitRequestFullscreen;
+    if (fs) {
+      (fs as () => Promise<void>)
+        .call(document.documentElement)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then(() => (screen.orientation as any).lock?.('landscape-primary').catch?.(() => {}))
+        .catch(() => {});
+    }
   }
 
   function startGame(level: number, difficulty: Difficulty) {
@@ -257,9 +262,12 @@ export default function App() {
               {/* 小地图 */}
               <Minimap st={mState} />
 
-              {/* 移动端控件 */}
+              {/* 移动端控件 + 虚拟摇杆 */}
               {mobile && (
-                <MobileControls input={managerRef.current?.input} />
+                <>
+                  <MobileJoystick input={managerRef.current?.input} />
+                  <MobileControls input={managerRef.current?.input} />
+                </>
               )}
             </>
           )}
@@ -303,6 +311,27 @@ export default function App() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ===== 虚拟摇杆 =====
+function MobileJoystick({ input }: { input: InputManager | null | undefined }) {
+  const [joy, setJoy] = useState({ active: false, baseX: 0, baseY: 0, dx: 0, dy: 0 });
+
+  useEffect(() => {
+    if (!input) return;
+    let rafId: number;
+    const poll = () => { setJoy(input.getJoystick()); rafId = requestAnimationFrame(poll); };
+    rafId = requestAnimationFrame(poll);
+    return () => cancelAnimationFrame(rafId);
+  }, [input]);
+
+  if (!joy.active) return null;
+  return (
+    <div className="joystick-wrap" style={{ left: joy.baseX, top: joy.baseY }}>
+      <div className="joystick-base" />
+      <div className="joystick-thumb" style={{ transform: `translate(${joy.dx}px, ${joy.dy}px)` }} />
     </div>
   );
 }
